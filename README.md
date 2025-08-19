@@ -5,6 +5,42 @@ It is intended to be used inside a Container running a specific ROS 2 image. (ro
 
 ## Setup
 
+### Docker Setup
+
+1. **Set up the folder and API key:**
+   Create a folder on your computer and add the Anthropic API key, e.g. `llm-robot-control`.
+
+   ```bash
+   mkdir ~/llm-robot-control
+   cd ~/llm-robot-control
+   # Copy Anthropic API key in:
+   nano api-key.txt
+   ```
+
+1. **Download and build the image:**
+   ```bash
+   wget https://raw.githubusercontent.com/mikelikesrobots/RAP-2025-Project-Group-2/refs/heads/main/Dockerfile
+   docker build -t llm-robot-control:latest .
+   ```
+
+Skip ahead to the [Running the Simulation and Agent](#running-the-simulation-and-agent), but make sure to run any commands in a Docker container:
+
+```bash
+docker run -it --rm \
+    --gpus all \
+    -v /tmp/.X11-unix:/tmp/.X11-unix \
+    -e NVIDIA_DRIVER_CAPABILITIES=all \
+    -e DISPLAY=$DISPLAY \
+    -e XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR \
+    -e XAUTHORITY=$XAUTH \
+    --device /dev/dri \
+    --name robotcontrol \
+    llm-robot-control:latest \
+    /bin/bash
+```
+
+### Manual Setup
+
 1.  **Clone the repository:**
     Clone this repository into the `~/rap/Gruppe2` directory inside your `rap-jazzy` container.
 
