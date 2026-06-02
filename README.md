@@ -1,29 +1,29 @@
-# ROSA Summit
+# ROSA Summit — LLM-Controlled Robot (ROS2 Jazzy)
 
-This package provides a ROS2 interface for controlling a simulated Summit XL robot using a Large Language Model (LLM) through the ROSA framework.
-It is intended to be used inside a Container running a specific ROS 2 image. (robopaas/rap-jazzy:cuda12.5.0)
+Voice/text control of a Summit XL robot in Gazebo using LLM tool calling via [OpenRouter](https://openrouter.ai/) (free model: NVIDIA Nemotron 3 Super 120B).
 
-## Setup
+## Prerequisites
 
-### Docker Setup
+- Docker with NVIDIA GPU support (`nvidia-container-toolkit`)
+- An [OpenRouter API key](https://openrouter.ai/keys) (free tier works)
 
-1. **Set up the folder and API key:**
-   Create a folder on your computer and add the Anthropic API key, e.g. `llm-robot-control`.
+## Quick Start
 
-   ```bash
-   mkdir ~/llm-robot-control
-   cd ~/llm-robot-control
-   # Copy Anthropic API key in:
-   nano api-key.txt
-   ```
+### 1. Build the Docker image
 
-1. **Download and build the image:**
-   ```bash
-   wget https://raw.githubusercontent.com/mikelikesrobots/RAP-2025-Project-Group-2/refs/heads/main/Dockerfile
-   docker build -t llm-robot-control:latest .
-   ```
+```bash
+git clone https://github.com/Fahlevi20/RAP-2025-Project-Group-2.git
+cd RAP-2025-Project-Group-2
+docker build -t rap-gruppe2:latest .
+```
 
-Skip ahead to the [Running the Simulation and Agent](#running-the-simulation-and-agent), but make sure to run any commands in a Docker container:
+Or use the retry script:
+
+```bash
+./docker_build.sh
+```
+
+### 2. Run the container
 
 ```bash
 docker run -it --rm \
@@ -32,119 +32,122 @@ docker run -it --rm \
     -e NVIDIA_DRIVER_CAPABILITIES=all \
     -e DISPLAY=$DISPLAY \
     -e XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR \
-    -e XAUTHORITY=$XAUTH \
     --device /dev/dri \
     --name robotcontrol \
-    llm-robot-control:latest \
+    rap-gruppe2:latest \
     /bin/bash
 ```
 
-### Manual Setup
+### 3. Set your OpenRouter API key
 
-1.  **Clone the repository:**
-    Clone this repository into the `~/rap/Gruppe2` directory inside your `rap-jazzy` container.
+Edit the key file inside the container:
 
-    ```bash
-    git clone <repository_url> ~/rap/Gruppe2
-    ```
+```bash
+echo "your-openrouter-api-key" > /home/ros/rap/Gruppe2/api-key.txt
+```
 
-2.  **Initialize the environment:**
-    Source the `init.sh` script to set up the ROS2 workspace and install dependencies.
-    ```bash
-    source ~/rap/Gruppe2/init.sh
-    ```
+Or set as environment variable:
 
-## Dependencies
+```bash
+export OPENROUTER_API_KEY="your-openrouter-api-key"
+```
 
-All required ROS 2 packages and Python libraries are automatically installed when you source the `init.sh` script. This script performs the following key dependency management tasks:
+### 4. Launch the simulation
 
-- **ROS 2 Packages:**
-  - Clones the `m-explore-ros2` repository (which provides the `explore_lite` package for autonomous exploration).
-  - **Important:** The `map_merge` sub-package within `m-explore-ros2` is automatically removed by the `init.sh` script. This package is not required for the current setup and has compatibility issues with ROS 2 Jazzy.
-  - The `icclab_summit_xl` package, which provides the Summit XL robot simulation and Nav2 integration, is expected to be already installed in your ROS 2 workspace or will be resolved by `rosdep`.
-- **Python Packages:**
-  - Installs or upgrades necessary Python libraries for ROSA and the LLM interaction, including `jpl-rosa`, `langchain-ollama`, `langchain-core`, `pydantic`, `anthropic`, and `langchain-anthropic`.
-- **Gazebo Models:**
-  - Sets the `GZ_SIM_RESOURCE_PATH` environment variable to include the custom Gazebo models used in the simulation world.
+**Terminal 1** — Start Gazebo + Nav2:
 
-The `init.sh` script also builds the Colcon workspace and runs `rosdep install` to ensure all system dependencies for the ROS 2 packages are met.
+```bash
+source /home/ros/colcon_ws/install/setup.bash
+ros2 launch rosa_summit summit.launch.py
+```
 
-## Running the Simulation and Agent
+With SLAM (mapping mode):
 
-1.  **Launch the Robot Simulation and Navigation:**
-    This command starts the Gazebo simulation with the Summit XL robot and loads the navigation stack (Nav2). It can be launched in two modes:
+```bash
+ros2 launch rosa_summit summit.launch.py slam:=True
+```
 
-    - **With SLAM (for mapping new environments):**
-      This mode enables SLAM (Simultaneous Localization and Mapping) and activates an autonomous exploration node. Use this mode when you want the robot to explore an unknown environment and create a new map.
+### 5. Run the LLM agent
 
-      ```bash
-      ros2 launch rosa_summit summit.launch.py slam:=True
-      ```
+**Terminal 2** — Open a new shell into the container:
 
-      In this mode, you can use the `save_map` action (see "Available LLM Actions") to save the newly created map.
+```bash
+docker exec -it robotcontrol bash
+source /home/ros/colcon_ws/install/setup.bash
+ros2 run rosa_summit rosa_summit
+```
 
-    - **With a pre-existing map (for navigation in known environments):**
-      This mode loads a default map (`maps/default.yaml`) and does not start SLAM or autonomous exploration. Use this mode when you have an existing map and want to navigate within it.
-      ```bash
-      ros2 launch rosa_summit summit.launch.py
-      ```
-      Or explicitly:
-      ```bash
-      ros2 launch rosa_summit summit.launch.py slam:=False
-      ```
+You'll see:
 
-2.  **Run the LLM Agent:**
-    In a new terminal (after sourcing `init.sh` or `~/colcon_ws/install/setup.bash`), run the ROSA LLM agent. This will allow you to interact with the robot using natural language.
-    ```bash
-    ros2 run rosa_summit rosa_summit
-    ```
+```
+Hi from rosa_summit.
+Using NVIDIA Nemotron 3 Super (free) via ChatOpenRouter
+Type 'exit' or 'quit' to end the program
+Enter your request:
+```
 
-## Interacting with the Robot
+### 6. Control the robot
 
-Once the agent is running, you can type commands in the terminal where you launched `rosa_summit`. For example:
-"drive forward at 0.5 meters per second"
-"stop"
-"start autonomous exploration"
-"navigate to x 1.0 y 2.0"
+Type natural language commands:
 
-## Simulation World
+```
+Enter your request: move forward 0.1 m/s
+[TOOL CALLED] send_vel({'velocity': 0.1})
+[RESULT] Velocity set to 0.1
+```
 
-The simulation environment uses a modified version of the AWS Robomaker Small House World.
+## Available Commands
 
-- **Original World:** [https://github.com/aws-robotics/aws-robomaker-small-house-world](https://github.com/aws-robotics/aws-robomaker-small-house-world)
-- **Modifications:**
-  - The world has been adapted from its original version. While a `ros2` branch exists in the original repository, further modifications were necessary to ensure compatibility with ROS 2 Jazzy.
-  - Several objects that frequently obstructed the robot's path or caused navigation issues have been removed or repositioned.
-  - The physics engine settings within the world file have been adjusted to improve the interaction and stability of the Summit XL robot.
+| Command | Example |
+|---------|---------|
+| `send_vel(velocity)` | "move forward at 0.5 m/s" |
+| `stop()` | "stop" |
+| `toggle_auto_exploration(bool)` | "start exploring" / "stop exploring" |
+| `navigate_to_pose(x, y, z, w)` | "go to position x 1.5 y -2.0" |
+| `navigate_relative(x, y, z, w)` | "move 1 meter forward" |
+| `save_map(name)` | "save the map as my_map" |
+| `list_saved_maps()` | "show saved maps" |
+| `get_location_names()` | "what are the known locations?" |
+| `navigate_to_location_by_name(name)` | "go to kitchen" |
 
-A finished 2D and 3D scan are available in the maps folder.
+## Project Structure
 
-## Demo Videos
+```
+├── Dockerfile              # Container build
+├── init.sh                 # Environment setup (deps, build)
+├── rosa_summit/
+│   └── rosa_summit.py      # LLM agent with tool calling
+├── launch/
+│   └── summit.launch.py    # Gazebo + Nav2 launch
+├── world/
+│   ├── empty.world         # Lightweight empty world
+│   └── small_house.world   # AWS small house world
+├── maps/                   # Saved SLAM maps
+└── demo/                   # Demo videos
+```
 
-Watch the robot in action:
+## LLM Configuration
 
-- **Mapping:** [Link to mapping.mp4](./demo/mapping.mp4)
-- **Navigation:** [Link to navigation.mp4](./demo/navigation.mp4)
+The agent uses `langchain-openrouter` with `bind_tools()` for proper function calling. Model can be changed in `rosa_summit.py`:
 
-## Available LLM Actions
+```python
+llm = ChatOpenRouter(
+    model="nvidia/nemotron-3-super-120b-a12b:free",
+    temperature=0,
+)
+```
 
-The LLM can control the robot using the following actions:
+Any OpenRouter model that supports tool calling will work.
 
-- **`send_vel(velocity: float)`**: Sets the forward velocity of the robot.
-  - Example: "drive forward at 0.2 meters per second"
-- **`stop()`**: Stops or halts the robot by setting its velocity to zero.
-  - Example: "stop the robot"
-- **`toggle_auto_exploration(resume_exploration: bool)`**: Starts or stops autonomous exploration.
-  - Example: "start exploring" or "stop exploring"
-- **`navigate_to_pose(x: float, y: float, z_orientation: float, w_orientation: float)`**: Moves the robot to an absolute position on the map using specified coordinates and orientation.
-  - Example: "go to position x 1.5 y -2.0 with orientation z 0.0 w 1.0"
-- **`navigate_relative(x: float, y: float, z_orientation: float, w_orientation: float)`**: Moves the robot relative to its current position.
-  - Example: "move 1 meter forward and 0.5 meters to the left"
-- **`save_map(map_name: str)`**: Saves the current map generated by SLAM.
-  - Example: "save the current map as my_house_map"
-- **`list_saved_maps()`**: Lists all previously saved maps.
-  - Example: "show me all saved maps"
-- **`get_location_names()`**: Returns a list of predefined location names.
-  - Example: "what are the known locations?"
-- **`navigate_to_location_by_name(location_name: str)`**: Moves the robot to a predefined named location.
-  - Example: "take me to the kitchen"
+## Demo
+
+- [Mapping demo](./demo/mapping.mp4)
+- [Navigation demo](./demo/navigation.mp4)
+
+## License
+
+MIT — see [LICENSE](./LICENSE).
+
+## Credits
+
+Based on [mikelikesrobots/RAP-2025-Project-Group-2](https://github.com/mikelikesrobots/RAP-2025-Project-Group-2).
