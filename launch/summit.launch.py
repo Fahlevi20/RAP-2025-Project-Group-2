@@ -20,7 +20,7 @@ def generate_launch_description():
 
     # Path to the world file within the rosa_summit package
     world_file_path = PathJoinSubstitution(
-        [FindPackageShare("rosa_summit"), "world", "small_house.world"]
+        [FindPackageShare("rosa_summit"), "world", "empty.world"]
     )
 
     # Path to the map file within the rosa_summit package

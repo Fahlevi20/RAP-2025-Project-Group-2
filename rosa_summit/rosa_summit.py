@@ -1,8 +1,7 @@
-from langchain_anthropic import ChatAnthropic
-from langchain_ollama import ChatOllama
-from langchain.agents import tool
-from rosa import ROSA
-from rosa.prompts import RobotSystemPrompts
+from langchain_openrouter import ChatOpenRouter
+from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain.globals import set_verbose
 import os
 import pathlib
 import time
@@ -294,76 +293,74 @@ def navigate_to_location_by_name(location_name: str) -> str:
     return f"Navigation goal sent to location '{location_name}'. Position: {pos}, Orientation: {orient}."
 
 
+SYSTEM_PROMPT = """You are Summit, a helpful robot assistant in a simulated ROS2 environment.
+
+You have access to the following tools and MUST use them to control the robot:
+
+- send_vel(velocity: float) - Set forward velocity in m/s. Example: send_vel(0.5)
+- stop() - Stop the robot immediately
+- toggle_auto_exploration(resume_exploration: bool) - Start (True) or stop (False) autonomous exploration
+- navigate_to_pose(x: float, y: float, z_orientation: float, w_orientation: float) - Navigate to absolute map position
+- navigate_relative(x: float, y: float, z_orientation: float, w_orientation: float) - Move relative to current position
+- save_map(map_name: str) - Save current SLAM map
+- list_saved_maps() - List all saved maps
+- get_location_names() - Get list of known locations
+- navigate_to_location_by_name(location_name: str) - Navigate to a named location (gym, kitchen, living room, office, bedroom)
+
+IMPORTANT: You MUST call the appropriate tool for every user request. Do NOT just describe what you would do - actually invoke the tool. After calling a tool, briefly confirm what you did."""
+
+TOOLS = [
+    send_vel,
+    stop,
+    toggle_auto_exploration,
+    navigate_to_pose,
+    navigate_relative,
+    save_map,
+    list_saved_maps,
+    get_location_names,
+    navigate_to_location_by_name,
+]
+
+
 def main():
     global node, vel_publisher, explore_publisher, navigate_to_pose_action_client
+    set_verbose(True)
     print("Hi from rosa_summit.")
 
-    # init rclpy
     rclpy.init()
     sim_time_param = Parameter("use_sim_time", rclpy.Parameter.Type.BOOL, True)
     node = rclpy.create_node("rosa_summit_node", parameter_overrides=[sim_time_param])
 
-    vel_publisher = node.create_publisher(Twist, "/summit/cmd_vel", 10)
+    vel_publisher = node.create_publisher(Twist, "/cmd_vel", 10)
     explore_publisher = node.create_publisher(Bool, "/summit/explore/resume", 10)
     navigate_to_pose_action_client = ActionClient(
-        node, NavigateToPose, "/summit/navigate_to_pose"
+        node, NavigateToPose, "/navigate_to_pose"
     )
 
-    # Get the current username
-    user_name = os.getenv("USER")
-
     try:
-        if user_name == "ros":
-            print("Using remote Ollama instance")
-            llm = ChatOllama(
-                model="hhao/qwen2.5-coder-tools:latest",  # "gemma3:12b",  # or your preferred model
-                temperature=0,
-                num_ctx=32192,  # adjust based on your model's context window
-                base_url="http://160.85.252.236:11434",
-            )
-        else:
-            print("Using Anthropic API with Claude Sonnet 3.5")
-            # Read API key from file
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
             try:
-                with open("/home/ros/rap/Gruppe2/api-key.txt", "r") as f:
-                    # Skip the comment line if it exists
+                key_path = "/home/ros/rap/Gruppe2/api-key.txt"
+                with open(key_path, "r") as f:
                     api_key = f.read().strip().split("\n")[-1]
             except Exception as e:
                 print(f"Error reading API key: {e}")
                 return
 
-            llm = ChatAnthropic(
-                model="claude-3-5-sonnet-20240620",
-                temperature=0,
-                anthropic_api_key=api_key,
-                max_tokens=4096,
-            )
+        os.environ["OPENROUTER_API_KEY"] = api_key
+        llm = ChatOpenRouter(
+            model="nvidia/nemotron-3-super-120b-a12b:free",
+            temperature=0,
+        )
+        llm_with_tools = llm.bind_tools(TOOLS)
+        print("Using NVIDIA Nemotron 3 Super (free) via ChatOpenRouter")
     except Exception as e:
         print(f"Error initializing LLM: {e}")
         return
 
-    prompt = RobotSystemPrompts()
-    prompt.embodiment = "You are an helpful robot named Summit, designed to assist users in a simulated environment. You can navigate, explore, and interact with the environment using various tools."
-
-    # Pass the LLM to ROSA with both tools available
-    agent = ROSA(
-        ros_version=2,
-        llm=llm,
-        tools=[
-            send_vel,
-            stop,
-            toggle_auto_exploration,
-            navigate_to_pose,
-            navigate_relative,
-            save_map,
-            list_saved_maps,
-            get_location_names,
-            navigate_to_location_by_name,
-        ],
-        prompts=prompt,
-    )
-
     print("Type 'exit' or 'quit' to end the program")
+    messages = [SystemMessage(content=SYSTEM_PROMPT)]
 
     try:
         while True:
@@ -372,18 +369,29 @@ def main():
                 break
 
             try:
-                print("Request sent")
-                res = agent.invoke(msg)[0]
-                if isinstance(res, dict) and "text" in res:
-                    print(res["text"])
+                t0 = time.time()
+                print("Request sent...")
+                messages.append(HumanMessage(content=msg))
+                response = llm_with_tools.invoke(messages)
+                elapsed = time.time() - t0
+                print(f"[TIME] {elapsed:.2f}s")
+
+                if response.tool_calls:
+                    for tc in response.tool_calls:
+                        print(f"[TOOL CALLED] {tc['name']}({tc['args']})")
+                        tool_fn = next((t for t in TOOLS if t.name == tc['name']), None)
+                        if tool_fn:
+                            result = tool_fn.invoke(tc['args'])
+                            print(f"[RESULT] {result}")
                 else:
-                    print(res)
+                    print(f"[RESPONSE] {response.content}")
+
+                messages = [SystemMessage(content=SYSTEM_PROMPT)]
             except Exception as e:
                 print(f"An error occurred: {e}")
     except KeyboardInterrupt:
         print("\nProgram terminated by user")
 
-    agent.shutdown()
     print("Bye from rosa_summit.")
 
 

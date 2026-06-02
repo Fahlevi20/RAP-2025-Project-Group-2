@@ -1,7 +1,7 @@
 FROM robopaas/rap-jazzy:cuda12.5.0
 
-RUN git clone https://github.com/RAP-2025-Project-Group-2/RAP-2025-Project-Group-2.git ~/rap/Gruppe2
-ADD api-key.txt /home/ros/rap/Gruppe2/api-key.txt
+# Copy local project (includes our OpenRouter modifications)
+COPY . /home/ros/rap/Gruppe2/
 RUN bash -c "source ~/rap/Gruppe2/init.sh"
 ENV GZ_SIM_RESOURCE_PATH=/home/ros/rap/Gruppe2/world/models
 
