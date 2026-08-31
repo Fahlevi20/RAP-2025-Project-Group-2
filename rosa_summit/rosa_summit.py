@@ -1,4 +1,4 @@
-from langchain_openrouter import ChatOpenRouter
+from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain.globals import set_verbose
@@ -7,7 +7,7 @@ import pathlib
 import time
 import subprocess
 from typing import Tuple
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, TwistStamped
 from std_msgs.msg import Bool
 from nav2_msgs.action import NavigateToPose
 import rclpy
@@ -109,10 +109,11 @@ def send_vel(velocity: float) -> str:
 
     :param velocity: the velocity at which the robot should move
     """
-    global vel_publisher
-    twist = Twist()
-    twist.linear.x = velocity
-    vel_publisher.publish(twist)
+    global vel_publisher, node
+    msg = TwistStamped()
+    msg.header.stamp = node.get_clock().now().to_msg()
+    msg.twist.linear.x = velocity
+    vel_publisher.publish(msg)
 
     return "Velocity set to %s" % velocity
 
@@ -123,9 +124,10 @@ def stop() -> str:
     Stops or halts the robot by setting its velocity to zero
 
     """
-    global vel_publisher
-    twist = Twist()
-    vel_publisher.publish(twist)
+    global vel_publisher, node
+    msg = TwistStamped()
+    msg.header.stamp = node.get_clock().now().to_msg()
+    vel_publisher.publish(msg)
     return "Robot stopped"
 
 
@@ -214,14 +216,11 @@ def save_map(map_name: str) -> str:
     :param map_name: The name for the map (e.g., 'my_lab_map'). Do not include file extensions.
     """
     maps_dir = _get_maps_dir()
-    if not os.path.isdir(
-        maps_dir
-    ):  # Should be created by _get_maps_dir, but double check
+    if not os.path.isdir(maps_dir):
         return f"Error: Maps directory {maps_dir} could not be accessed or created."
 
     filepath_prefix = os.path.join(maps_dir, map_name)
 
-    # Added --ros-args -r map:=/summit/map to specify the topic
     cmd = f"ros2 run nav2_map_server map_saver_cli -f '{filepath_prefix}' --ros-args -r map:=/summit/map"
     success, output = execute_ros_command(cmd)
     if success:
@@ -324,14 +323,14 @@ TOOLS = [
 
 def main():
     global node, vel_publisher, explore_publisher, navigate_to_pose_action_client
-    set_verbose(True)
+    set_verbose(False)
     print("Hi from rosa_summit.")
 
     rclpy.init()
     sim_time_param = Parameter("use_sim_time", rclpy.Parameter.Type.BOOL, True)
     node = rclpy.create_node("rosa_summit_node", parameter_overrides=[sim_time_param])
 
-    vel_publisher = node.create_publisher(Twist, "/cmd_vel", 10)
+    vel_publisher = node.create_publisher(TwistStamped, "/cmd_vel", 10)
     explore_publisher = node.create_publisher(Bool, "/summit/explore/resume", 10)
     navigate_to_pose_action_client = ActionClient(
         node, NavigateToPose, "/navigate_to_pose"
@@ -348,13 +347,14 @@ def main():
                 print(f"Error reading API key: {e}")
                 return
 
-        os.environ["OPENROUTER_API_KEY"] = api_key
-        llm = ChatOpenRouter(
-            model="nvidia/nemotron-3-super-120b-a12b:free",
+        llm = ChatOpenAI(
+            model="inclusionai/ling-3.0-flash-fin:free",
+            openai_api_base="https://openrouter.ai/api/v1",
+            openai_api_key=api_key,
             temperature=0,
         )
         llm_with_tools = llm.bind_tools(TOOLS)
-        print("Using NVIDIA Nemotron 3 Super (free) via ChatOpenRouter")
+        print("Using OpenRouter Free Model (Ling 3.0 Flash)")
     except Exception as e:
         print(f"Error initializing LLM: {e}")
         return
