@@ -1,3 +1,4 @@
 api-key.txt
 **/__pycache__/
 *.ikcachemaps/rtabmap.db
+maps/rtabmap.db
